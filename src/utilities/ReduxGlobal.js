@@ -1,7 +1,7 @@
 import { createSlice } from "@reduxjs/toolkit";
 
 const initialState = {
-  products: [],      // Stores all marketplace products
+  products: {},      // Stores all marketplace products as an object
   cart: [],          // Stores items added to the cart
   userData: [],      // User-specific data (buyers/sellers)
   transactions: [],  // Transaction history
@@ -20,38 +20,34 @@ const marketplaceSlice = createSlice({
   name: "Marketplace",
   initialState,
   reducers: {
-    // Add user data (e.g., profile, payment details, seller/buyer info)
     addUserData: (state, { payload }) => {
       state.userData.push({ ...payload });
     },
 
-    // Add products to the marketplace (could be fetched from Firebase/API)
     addProducts: (state, { payload }) => {
-      state.products = payload;
-    },
-
-    // Add a product to the cart
-    addToCart: (state, { payload }) => {
-      const productIndex = state.cart.findIndex((el) => el.id === payload.id);
-      if (productIndex >= 0) {
-        // If product already in cart, increment quantity
-        state.cart[productIndex].quantity += 1;
+      if (Array.isArray(payload)) {
+        payload.forEach(product => {
+          state.products[product.id] = product;
+        });
       } else {
-        // Add new product to cart with initial quantity of 1
-        const newCartItem = { ...payload, quantity: 1, installmentPaid: 0 };
-        state.cart.push(newCartItem);
+        state.products[payload.id] = payload;
       }
     },
-    
 
-    // Update the installment payment status for a product in the cart
+    addToCart: (state, { payload }) => {
+      const cartItem = state.cart.find((el) => el.id === payload.id);
+      if (cartItem) {
+        cartItem.quantity += 1;
+      } else {
+        state.cart.push({ ...payload, quantity: 1, installmentPaid: 0 });
+      }
+    },
+
     updateInstallmentPayment: (state, { payload }) => {
-      const productIndex = state.cart.findIndex((el) => el.id === payload.id);
-      if (productIndex >= 0) {
-        // Update the installment paid amount
-        state.cart[productIndex].installmentPaid = payload.installmentPaid;
+      const cartItem = state.cart.find((el) => el.id === payload.id);
+      if (cartItem) {
+        cartItem.installmentPaid = payload.installmentPaid;
 
-        // Adjust the installmentState if tracking specific product
         if (state.installmentState.productId === payload.id) {
           state.installmentState.remainingAmount -= payload.installmentPaid;
           state.installmentState.installmentsPaid += 1;
@@ -59,7 +55,6 @@ const marketplaceSlice = createSlice({
       }
     },
 
-    // Action to handle paying an installment
     payInstallment: (state, { payload }) => {
       if (state.installmentState.remainingAmount >= payload.amount) {
         state.installmentState.remainingAmount -= payload.amount;
@@ -69,27 +64,23 @@ const marketplaceSlice = createSlice({
       }
     },
 
-    // Change the product quantity in the cart (increment or decrement)
     changeCartQuantity: (state, { payload }) => {
-      const productIndex = state.cart.findIndex((el) => el.id === payload.id);
-      if (productIndex >= 0) {
+      const cartItem = state.cart.find((el) => el.id === payload.id);
+      if (cartItem) {
         if (payload.changeType === "increment") {
-          state.cart[productIndex].quantity += 1;
-        } else if (payload.changeType === "decrement" && state.cart[productIndex].quantity > 1) {
-          state.cart[productIndex].quantity -= 1;
+          cartItem.quantity += 1;
+        } else if (payload.changeType === "decrement" && cartItem.quantity > 1) {
+          cartItem.quantity -= 1;
         } else {
-          // Remove product if quantity is 1 and user decrements
           state.cart = state.cart.filter((item) => item.id !== payload.id);
         }
       }
     },
 
-    // Remove a product from the cart
     removeFromCart: (state, { payload }) => {
       state.cart = state.cart.filter((item) => item.id !== payload.id);
     },
 
-    // Calculate the total cost for items in the cart, including quantities and installments
     calculateTotalCost: (state) => {
       const { totalCost, totalQuantity } = state.cart.reduce(
         (totals, item) => {
@@ -104,22 +95,19 @@ const marketplaceSlice = createSlice({
       state.totalCartQuantity = totalQuantity;
     },
 
-    // Record a completed transaction
     recordTransaction: (state, { payload }) => {
       state.transactions.push({ ...payload });
     },
 
-    // Create a dispute for a transaction (initiated by buyer or seller)
     createDispute: (state, { payload }) => {
       state.disputes.push({ ...payload });
     },
 
-    // Settle a dispute (resolved by platform or through arbitration)
     settleDispute: (state, { payload }) => {
-      const disputeIndex = state.disputes.findIndex((el) => el.id === payload.id);
-      if (disputeIndex >= 0) {
-        state.disputes[disputeIndex].disputeResolved = true;
-        state.disputes[disputeIndex].resolutionDetails = payload.resolutionDetails;
+      const dispute = state.disputes.find((el) => el.id === payload.id);
+      if (dispute) {
+        dispute.disputeResolved = true;
+        dispute.resolutionDetails = payload.resolutionDetails;
       }
     },
   },

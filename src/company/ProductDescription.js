@@ -1,57 +1,55 @@
 import React, { useState, useEffect } from "react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { styled } from "@mui/system";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { addToCart } from "../utilities/ReduxGlobal";
+import { useParams, Link } from "react-router-dom";
+import { addProducts } from "../utilities/ReduxGlobal";
 import { firestore } from "../base";
 import { doc, getDoc } from "firebase/firestore";
-import img from "../assets/image1.jpg"
 
 const ProductDetail = () => {
   const { companyUid, productId } = useParams();
   const dispatch = useDispatch();
-  const navigate = useNavigate();
-  const [product, setProduct] = useState(null);
+  const product = useSelector((state) => state.marketplace.products[productId]);
+  const [loading, setLoading] = useState(!product);
 
   useEffect(() => {
-    const fetchProductDetail = async () => {
-      try {
-        const productRef = doc(firestore, `companies/${companyUid}/products/${productId}`);
-        const productSnapshot = await getDoc(productRef);
+    if (!product) {
+      (async () => {
+        try {
+          const productRef = doc(firestore, `companies/${companyUid}/products/${productId}`);
+          const productSnapshot = await getDoc(productRef);
 
-        if (productSnapshot.exists()) {
-          setProduct({
-            id: productSnapshot.id,
-            ...productSnapshot.data(),
-          });
-        } else {
-          console.warn("Product not found. Loading dummy data.");
-          setProduct({
-            id: "dummy-id",
-            name: "Sample Solar Panel",
-            price: 25000,
-            energyOutput: "250W",
-            description: "High-efficiency solar panel for residential use.",
-            image: "https://via.placeholder.com/400",
-          });
+          if (productSnapshot.exists()) {
+            const productData = {
+              id: productSnapshot.id,
+              ...productSnapshot.data(),
+            };
+            dispatch(addProducts(productData));
+          } else {
+            console.warn("Product not found. Loading dummy data.");
+            const dummyProduct = {
+              id: productId,
+              name: "Sample Solar Panel",
+              price: 25000,
+              energyOutput: "250W",
+              description: "High-efficiency solar panel for residential use.",
+              image: "https://via.placeholder.com/400",
+            };
+            dispatch(addProducts(dummyProduct));
+          }
+        } catch (error) {
+          console.error("Error fetching product details: ", error);
+        } finally {
+          setLoading(false);
         }
-      } catch (error) {
-        console.error("Error fetching product details: ", error);
-        setProduct({
-          id: "dummy-id",
-          name: "Sample Solar Panel",
-          price: 25000,
-          energyOutput: "250W",
-          description: "High-efficiency solar panel for residential use.",
-          image: "https://via.placeholder.com/400",
-        });
-      }
-    };
+      })();
+    } else {
+      setLoading(false);
+    }
+  }, [companyUid, productId, dispatch, product]);
 
-    fetchProductDetail();
-  }, [companyUid, productId]);
-
-  if (!product) return <Loading minHeight="90vh">Loading product details...</Loading>;
+  if (loading) return <Loading minHeight="90vh">Loading product details...</Loading>;
+  if (!product) return <div>Product not found</div>;
 
   return (
     <Container minHeight="100vh">
@@ -64,10 +62,8 @@ const ProductDetail = () => {
           <Price>Price: #{product.price}</Price>
           <Category>Energy Output: {product.energyOutput}</Category>
           <Description>{product.description}</Description>
-         <Link to ="/checkout">
-          <ActionButton>
-            Checkout
-          </ActionButton>
+          <Link to="/checkout" state={{ productId: product.id }}>
+            <ActionButton>Checkout</ActionButton>
           </Link>
         </Info>
       </Wrapper>
@@ -78,14 +74,14 @@ const ProductDetail = () => {
 export default ProductDetail;
 
 // Styled Components
-const Container = styled("div")({
+const Container = styled("div")(({ minHeight }) => ({
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
-  minHeight: "100vh",
+  minHeight,
   backgroundColor: "#f9f9f9",
   padding: "20px",
-});
+}));
 
 const Wrapper = styled("div")({
   display: "flex",
@@ -166,9 +162,12 @@ const ActionButton = styled("button")({
   },
 });
 
-const Loading = styled("div")({
+const Loading = styled("div")(({ minHeight }) => ({
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  minHeight,
   fontSize: "1.5rem",
   color: "#666",
   textAlign: "center",
-  marginTop: "50px",
-});
+}));

@@ -1,23 +1,21 @@
 // Imports
 import React, { useState, useEffect } from "react";
-import { useDispatch, useSelector } from "react-redux";
 import { styled } from "@mui/system";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import pool from "../assets/image1.jpg";
-import { addProducts, addToCart } from '../utilities/ReduxGlobal';
 import { firestore } from '../base';
 import { collectionGroup, getDocs } from 'firebase/firestore';
 
 const Products = () => {
-  const { id } = useParams();
-  const dispatch = useDispatch();
   const navigate = useNavigate();
-  const products = useSelector((state) => state.marketplace.products);
-  const [filteredProducts, setFilteredProducts] = useState(products);
+  const [products, setProducts] = useState([]);
+  const [filteredProducts, setFilteredProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  // Fetching products from Firestore
+  // Fetch products from Firestore
   const fetchProducts = async () => {
+    setLoading(true);
     try {
       const productData = await getDocs(collectionGroup(firestore, "products"));
       const items = productData.docs.map((doc) => ({
@@ -25,15 +23,20 @@ const Products = () => {
         ...doc.data(),
         companyUid: doc.ref.parent.parent.id, // Access the company's UID
       }));
-        
-      dispatch(addProducts(items)); // Dispatch to Redux
+      setProducts(items); // Store products in local state
+      setFilteredProducts(items); // Initialize filtered products
     } catch (error) {
       console.error("Error fetching products: ", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-console.log(products, "all")
-  // Search functionality
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  // Filter products based on search term
   useEffect(() => {
     if (searchTerm) {
       setFilteredProducts(
@@ -46,13 +49,13 @@ console.log(products, "all")
     }
   }, [searchTerm, products]);
 
-  useEffect(() => {
-    if (products.length === 0) fetchProducts();
-  }, []);
-
-  const handleViewMore = ( companyUid, productId) => {
+  const handleViewMore = (companyUid, productId) => {
     navigate(`/product/${companyUid}/${productId}`);
   };
+
+  if (loading) {
+    return <div>Loading products...</div>;
+  }
 
   return (
     <Container>
@@ -81,7 +84,7 @@ console.log(products, "all")
                 <Price>#{product.price}</Price>
                 <Category>Energy Output: {product.energyOutput}</Category>
 
-                <ActionButton onClick={() => dispatch(addToCart(product))}>
+                <ActionButton onClick={() => console.log("Add to Cart")}>
                   Add to Cart
                 </ActionButton>
                 <ActionButton onClick={() => handleViewMore(product.companyUid, product.id)}>
