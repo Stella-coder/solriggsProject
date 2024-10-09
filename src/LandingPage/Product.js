@@ -23,8 +23,8 @@ const Products = () => {
         ...doc.data(),
         companyUid: doc.ref.parent.parent.id, // Access the company's UID
       }));
-      setProducts(items); // Store products in local state
-      setFilteredProducts(items); // Initialize filtered products
+      setProducts((prevProducts) => [...prevProducts, ...items]); // Add new items to existing state
+      setFilteredProducts((prevFiltered) => [...prevFiltered, ...items]); // Update filtered products
     } catch (error) {
       console.error("Error fetching products: ", error);
     } finally {
@@ -53,10 +53,6 @@ const Products = () => {
     navigate(`/product/${companyUid}/${productId}`);
   };
 
-  if (loading) {
-    return <div>Loading products...</div>;
-  }
-
   return (
     <Container>
       <Wrapper>
@@ -78,7 +74,7 @@ const Products = () => {
         <Room>
           {filteredProducts.map((product) => (
             <Card key={product.id}>
-              <Img src={product.image} alt={product.name} />
+              <Img src={product.image || pool} alt={product.name} /> {/* Default image for missing image */}
               <Text>
                 <Name>{product.name}</Name>
                 <Price>#{product.price}</Price>
@@ -93,6 +89,7 @@ const Products = () => {
               </Text>
             </Card>
           ))}
+          {loading && <LoadingMessage>Loading more products...</LoadingMessage>}
         </Room>
       </Wrapper>
     </Container>
@@ -104,7 +101,7 @@ export default Products;
 // Styled Components
 const Container = styled("div")({
   width: "100%",
-  minHeight: "120vh",
+  minHeight: "100vh",
   display: "flex",
   flexDirection: "column",
 });
@@ -211,4 +208,12 @@ const ActionButton = styled("button")({
   "&:hover": {
     backgroundColor: "#DEA954",
   },
+});
+
+const LoadingMessage = styled("div")({
+  width: "100%",
+  textAlign: "center",
+  padding: "20px",
+  fontSize: "1.2rem",
+  color: "gray",
 });

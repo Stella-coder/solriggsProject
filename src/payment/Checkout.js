@@ -15,11 +15,29 @@ import {
   Box,
   Snackbar,
   Alert,
+  CircularProgress,
 } from "@mui/material";
 import { firestore } from "../base";
-import { createTransfer } from "@solana/pay";
-import { Connection, clusterApiUrl, Keypair } from "@solana/web3.js";
+import {
+  Connection,
+  clusterApiUrl,
+  PublicKey,
+  Transaction,
+  Keypair,
+} from "@solana/web3.js";
+import {
+  createTransferCheckedInstruction,
+  createTransferInstruction,
+  getAssociatedTokenAddress,
+  getMint,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import { findReference, createQR } from "@solana/pay";
 import { recordTransaction, payInstallment } from "../utilities/ReduxGlobal";
+
+// USDC mint address and merchant wallet for your network
+const USDC_MINT = new PublicKey("Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr");
+const MERCHANT_WALLET = new PublicKey("AttBvY3FQrnSm13WQKXvRinTSYQrJ1HVEa78nqvVjogS");
 
 const VerificationModal = ({ open, onClose, onSubmit }) => {
   const [name, setName] = useState("");
@@ -46,9 +64,7 @@ const VerificationModal = ({ open, onClose, onSubmit }) => {
           overflowY: "auto",
         }}
       >
-        <Typography variant="h6" component="h2">
-          Verification for Installment Payment
-        </Typography>
+        <Typography variant="h6">Verification for Installment Payment</Typography>
         <form onSubmit={handleSubmit}>
           <TextField
             fullWidth
@@ -100,31 +116,32 @@ const Checkout = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarSeverity, setSnackbarSeverity] = useState("success");
+  const [qrCode, setQrCode] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [walletConnected, setWalletConnected] = useState(false);
 
-  const nairaToSolRate = 0.0003; // Example: 1 Naira = 0.0003 SOL
+  const [walletPublicKey, setWalletPublicKey] = useState(null);
+
+
+  const nairaToUsdcRate = 0.0022; // Example rate for Naira to USDC
 
   useEffect(() => {
     if (!product) {
       navigate("/");
     } else {
-      const initialAmount = product.price;
-      setAmount(initialAmount);
+      setAmount(product.price);
     }
   }, [product, navigate]);
 
   useEffect(() => {
-    const calculatedAmount = paymentOption === "installment" ? product?.price / installments : product?.price;
-    if (paymentMethod === "naira") {
-      setAmount(calculatedAmount); // Amount in Naira
-    } else if (paymentMethod === "crypto") {
-      setAmount(calculatedAmount * (nairaToSolRate)); // Amount in SOL
+    if (product) {
+      const calculatedAmount = paymentOption === "installment" ? product.price / installments : product.price;
+      setAmount(paymentMethod === "crypto" ? calculatedAmount * nairaToUsdcRate : calculatedAmount);
     }
   }, [paymentOption, installments, product, paymentMethod]);
 
-  const generateTrackingCode = () => Math.random().toString(36).substr(2, 9).toUpperCase();
-
   const storeInstallment = async (uid, price, reference, installmentOption, userDetails) => {
-    const code = generateTrackingCode();
+    const code = Math.random().toString(36).substr(2, 9).toUpperCase();
     const paymentRef = firestore.collection("installments").doc(uid).collection("payments").doc(reference);
     await paymentRef.set({
       price,
@@ -137,75 +154,88 @@ const Checkout = () => {
     return code;
   };
 
-  const handlePayment = async (userDetails = null) => {
+  const createSolanaPayTransaction = async () => {
     try {
-      const recipientPublicKey = "G4KqRAKkuac6QjvMMHSWjuscqaNq7GngVacS7mhwKooN"; // Replace with actual public key
       const connection = new Connection(clusterApiUrl("devnet"));
-      const reference = Keypair.generate().publicKey.toString();
+      const mint = await getMint(connection, USDC_MINT);
+      const decimals = mint?.decimals || 9;
+      const amountInUSDC = Math.round(amount * 10 ** decimals);
 
-      console.log("Attempting payment...");
-      console.log(`Payment Method: ${paymentMethod}`);
-      console.log(`Amount: ${amount}`);
-      console.log(`Recipient Public Key: ${recipientPublicKey}`);
-      console.log(`Reference: ${reference}`);
+      const merchantTokenAddress = await getAssociatedTokenAddress(USDC_MINT, MERCHANT_WALLET);
+      const reference = Keypair.generate().publicKey;
+      const url = new URL("https://yourapp.com/checkout");
+      url.searchParams.append("reference", reference.toBase58());
 
-      const lamports = Math.round(amount * Math.pow(10, 9)); // Convert SOL to lamports if payment is in SOL
+      const createTransactionFn = async (publicKey) => {
+        const userTokenAddress = await getAssociatedTokenAddress(USDC_MINT, publicKey);
+        const transaction = new Transaction();
+        transaction.add(
+          createTransferCheckedInstruction(
+            userTokenAddress,
+            USDC_MINT,
+            merchantTokenAddress,
+            publicKey,
+            amountInUSDC,
+            decimals
+          )
+        );
+        return transaction;
+      };
 
-      if (paymentMethod === "crypto") {
-        const transferTransaction = await createTransfer({
-          connection,
-          recipient: recipientPublicKey,
-          amount: lamports, // Pass the amount in lamports
-          reference,
-          memo: paymentOption === "full" ? "Full payment" : `Installment ${installments}`,
-        });
+      const qr = createQR(url, 512, "transparent");
+      setQrCode(qr);
 
-        console.log("Processing Solana Pay transaction:", transferTransaction);
-
-        if (!transferTransaction) {
-          throw new Error("Transaction failed to process.");
-        }
-      } else {
-        console.log(`Processing Naira payment of ₦${amount}`);
-      }
-
-      const code = await storeInstallment(
-        "user-id", // Replace with actual user ID
-        amount,
-        reference,
-        paymentOption,
-        userDetails
-      );
-
-      dispatch(recordTransaction({
-        productId: product.id,
-        amount,
-        paymentMethod,
-        paymentOption,
-        trackingCode: code,
-        timestamp: new Date().toISOString(),
-      }));
-
-      if (paymentOption === "installment") {
-        dispatch(payInstallment({ amount }));
-      }
-
-      setStatus(`${paymentOption === "full" ? "Full payment" : "Installment payment"} completed successfully. Tracking code: ${code}`);
-      setSnackbarSeverity("success");
+      return { url, createTransactionFn, reference };
     } catch (error) {
-      console.error("Payment failed:", error);
-      setStatus("Payment failed. " + (error.message || ""));
-      setSnackbarSeverity("error");
-    } finally {
-      setSnackbarOpen(true);
+      console.error("Error in createSolanaPayTransaction:", error);
+      throw error;
     }
   };
 
-  const handleCheckout = () => {
-    if (paymentOption === "installment") {
-      setIsModalOpen(true);
-    } else {
-      handlePayment();
+  const handlePayment = async (userDetails = null) => {
+    setIsLoading(true);
+    try {
+      if (paymentMethod === "crypto" && !walletConnected) {
+        throw new Error("Please connect your wallet first.");
+      }
+
+      const { url, createTransactionFn, reference } = await createSolanaPayTransaction();
+      const connection = new Connection(clusterApiUrl("devnet"));
+      const signatureInfo = await findReference(connection, reference, { finality: "confirmed" });
+
+      if (signatureInfo.signature) {
+        const code = await storeInstallment(
+          "user-id",
+          amount,
+          signatureInfo.signature,
+          paymentOption,
+          userDetails
+        );
+
+        dispatch(recordTransaction({
+          productId: product.id,
+          amount,
+          paymentMethod: paymentMethod === "crypto" ? "USDC" : "Naira",
+          paymentOption,
+          trackingCode: code,
+          timestamp: new Date().toISOString(),
+        }));
+
+        if (paymentOption === "installment") {
+          dispatch(payInstallment({ amount }));
+        }
+
+        setStatus(`Payment completed successfully. Tracking code: ${code}`);
+        setSnackbarSeverity("success");
+      } else {
+        throw new Error("Transaction not found");
+      }
+    } catch (error) {
+      setStatus("Payment failed. " + (error.message || ""));
+      setSnackbarSeverity("error");
+    } finally {
+      setIsLoading(false);
+      setSnackbarOpen(true);
     }
   };
 
@@ -214,9 +244,33 @@ const Checkout = () => {
     handlePayment(userDetails);
   };
 
-  const handleSnackbarClose = () => {
-    setSnackbarOpen(false);
+  const handleSnackbarClose = () => setSnackbarOpen(false);
+
+  const handleConnectWallet = async () => {
+    try {
+      if (window.solflare && window.solflare.isSolflare) {
+        await window.solflare.connect();
+        const publicKey = await window.solflare.publicKey;
+        if (publicKey) {
+          setWalletPublicKey(publicKey);
+          setWalletConnected(true);
+          setStatus("Wallet connected successfully!");
+          setSnackbarSeverity("success");
+          setSnackbarOpen(true);
+        } else {
+          throw new Error("Failed to get public key from Solflare");
+        }
+      } else {
+        throw new Error("Solflare wallet not found. Please install the Solflare extension.");
+      }
+    } catch (error) {
+      setStatus("Failed to connect to Solflare. " + (error.message || ""));
+      setSnackbarSeverity("error");
+      setSnackbarOpen(true);
+    }
   };
+
+  
 
   if (!product) return null;
 
@@ -224,12 +278,9 @@ const Checkout = () => {
     <Grid container spacing={3} sx={{ padding: { xs: 2, lg: 10 } }}>
       <Grid item xs={12}>
         <Typography variant="h4">Checkout</Typography>
-      </Grid>
-
-      <Grid item xs={12}>
         <Typography variant="h6">Product name: {product.name}</Typography>
         <Typography variant="h6">
-          Full Price: {paymentMethod === "crypto" ? `${(product.price * nairaToSolRate).toFixed(5)} SOL` : `₦${product.price}`}
+          Full Price: {paymentMethod === "crypto" ? `${(product.price * nairaToUsdcRate).toFixed(2)} USDC` : `₦${product.price}`}
         </Typography>
       </Grid>
 
@@ -243,49 +294,61 @@ const Checkout = () => {
         </FormControl>
       </Grid>
 
+      <Grid item xs={12}>
+        <FormControl component="fieldset">
+          <FormLabel component="legend">Payment Method</FormLabel>
+          <RadioGroup row value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+            <FormControlLabel value="crypto" control={<Radio />} label="USDC" />
+            <FormControlLabel value="naira" control={<Radio />} label="Naira" />
+          </RadioGroup>
+        </FormControl>
+      </Grid>
+
       {paymentOption === "installment" && (
         <Grid item xs={12}>
           <TextField
-            label="Number of Installments"
+            label="Installments"
             type="number"
             value={installments}
-            onChange={(e) => setInstallments(Math.max(1, parseInt(e.target.value)))}
+            onChange={(e) => setInstallments(Math.max(1, +e.target.value))}
             fullWidth
           />
         </Grid>
       )}
 
       <Grid item xs={12}>
-        <FormControl component="fieldset">
-          <FormLabel component="legend">Payment Method</FormLabel>
-          <RadioGroup row value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-            <FormControlLabel value="crypto" control={<Radio />} label="Cryptocurrency (SOL/USDC)" />
-            <FormControlLabel value="naira" control={<Radio />} label="Naira (₦)" />
-          </RadioGroup>
-        </FormControl>
+        <Typography variant="h6">
+          Payment Amount: {paymentMethod === "crypto" ? `${amount} USDC` : `₦${amount}`}
+        </Typography>
       </Grid>
 
       <Grid item xs={12}>
-        <TextField
-          label={`Amount to Pay (in ${paymentMethod === "crypto" ? "SOL" : "₦"})`}
-          value={amount}
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={() => (paymentOption === "installment" ? setIsModalOpen(true) : handlePayment())}
+          disabled={isLoading}
           fullWidth
-          InputProps={{
-            readOnly: true,
-          }}
-        />
-      </Grid>
-
-      <Grid item xs={12}>
-        <Button variant="contained" color="primary" onClick={handleCheckout}>
-          Proceed to Payment
+        >
+          {isLoading ? <CircularProgress size={24} /> : "Pay Now"}
         </Button>
+        {paymentMethod === "crypto" && (
+          <Button
+            variant="outlined"
+            color="secondary"
+            onClick={handleConnectWallet}
+            disabled={walletConnected}
+            sx={{ mt: 2 }}
+            fullWidth
+          >
+            {walletConnected ? "Wallet Connected" : "Connect Wallet"}
+          </Button>
+        )}
       </Grid>
 
       <VerificationModal open={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleVerificationSubmit} />
-
-      <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={handleSnackbarClose}>
-        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
+      <Snackbar open={snackbarOpen} autoHideDuration={5000} onClose={handleSnackbarClose}>
+        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: "100%" }}>
           {status}
         </Alert>
       </Snackbar>

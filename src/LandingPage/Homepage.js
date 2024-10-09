@@ -23,9 +23,9 @@ const HomePage = ()=>{
            
             <div> <HeroSection/> </div>
             <div> <AboutPage/> </div>
-            <div> <SomeProductsPage/> </div>
-            <div> <MissionPage/> </div>
+            <div> <SomeProductsPage/> </div>       
             <div> <WhatWeOfferPage/> </div>
+            <div> <MissionPage/> </div>
 
         </div>
     )

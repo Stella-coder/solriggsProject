@@ -9,6 +9,7 @@
     "@mui/material": "^6.1.2",
     "@reduxjs/toolkit": "^2.2.7",
     "@solana/pay": "^0.2.5",
+    "@solana/spl-token": "^0.4.8",
     "@solana/wallet-adapter-react": "^0.15.35",
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",

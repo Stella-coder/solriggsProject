@@ -10,21 +10,23 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward'; // Import an ic
 const ProductsPage = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const products = useSelector((state) => state.marketplace.products); // Redux store products
+  const [products, setProducts] = useState([])
   const [randomProducts, setRandomProducts] = useState([]);
 
   // Fetching products from all companies' Firestore sub-collections
   const fetchProducts = async () => {
+  
     try {
-        const productData = await getDocs(collectionGroup(firestore, "products"));
-        const items = productData.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          companyUid: doc.ref.parent.parent.id, // Access the company's UID
-        }));      
-      } catch (error) {
-        console.error("Error fetching products: ", error);
-      }
+      const productData = await getDocs(collectionGroup(firestore, "products"));
+      const items = productData.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+        companyUid: doc.ref.parent.parent.id, // Access the company's UID
+      }));
+      setProducts(items)
+    } catch (error) {
+      console.error("Error fetching products: ", error);
+    } 
   };
 
   // Randomize products to display different ones

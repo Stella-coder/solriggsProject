@@ -110,8 +110,8 @@ const MainContainer = styled(Box)({
   justifyContent: 'center',
   alignItems: 'center',
   backgroundColor: '#f9f9f9',
-  paddingTop: '64px',
-  paddingBottom: '64px',
+  padding: '30px 0px',
+  
 });
 
 const StyledContainer = styled(Container)({

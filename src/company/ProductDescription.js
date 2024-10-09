@@ -48,7 +48,7 @@ const ProductDetail = () => {
     }
   }, [companyUid, productId, dispatch, product]);
 
-  if (loading) return <Loading minHeight="90vh">Loading product details...</Loading>;
+  if (loading) return <Loading minHeight="100vh">Loading product details...</Loading>;
   if (!product) return <div>Product not found</div>;
 
   return (
